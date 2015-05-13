@@ -14,7 +14,8 @@ class ArbitraryTypeReaderSpec extends Spec { def is = s2"""
     instantiate with multiple apply methods if only one returns the correct type $multipleApply
     instantiate with primary constructor when no apply methods and multiple constructors $multipleConstructors
     instantiate with camel case fields and hyphen case config keys $withCamelCaseFields
-    throw an exception with non-exhuastive key mapping $withExhaustivityCheck
+    throw an exception with non-exhuastive key mapping $withFailingExhaustivityCheck
+    succeed with an exhuastive key mapping $withPassingExhaustivityCheck
     use another implicit value reader for a field $withOptionField
     fall back to a default value on an apply method $fallBackToApplyMethodDefaultValue
     fall back to default values on an apply method if base key isn't in config $fallBackToApplyMethodDefaultValueNoKey
@@ -89,20 +90,29 @@ class ArbitraryTypeReaderSpec extends Spec { def is = s2"""
 
   def withCamelCaseFields = {
     import Ficus.{stringValueReader}
-    import OtherArbitraryTypeReader._
+    import LowercaseArbitraryTypeReader._
     val cfg = ConfigFactory.parseString(s"withCamelCaseFields { acamelcasefield: foo, anothercamelcasefield: bar }")
     val instance = arbitraryTypeValueReader[ClassWithCamelCaseFields].read(cfg, "withCamelCaseFields")
     (instance.aCamelCaseField must_== "foo") and (instance.anotherCamelCaseField must_== "bar")
   }
 
-  def withExhaustivityCheck = {
-    import Ficus.{stringValueReader}
-    import OtherArbitraryTypeReader._
-    val cfg = ConfigFactory.parseString(s"withCamelCaseFields { acamelcasefield: foo, anothercamelcasefield: bar, anextrafield: error }")
-    val reader = arbitraryTypeValueReader[ClassWithCamelCaseFields]
-    def doRead: Unit = reader.read(cfg, "withCamelCaseFields")
+  def withPassingExhaustivityCheck = {
+    import Ficus._
+    import ExhaustiveArbitraryTypeReader._
+    val cfg = ConfigFactory.parseString(s"withExhaustive { foo: foo, bar: 1 }")
+    val reader = arbitraryTypeValueReader[ClassWithMultipleParams]
+    val instance = reader.read(cfg, "withExhaustive")
+    (instance.foo must_== "foo") and (instance.bar must_== 1)
+  }
+
+  def withFailingExhaustivityCheck = {
+    import Ficus._
+    import ExhaustiveArbitraryTypeReader._
+    val cfg = ConfigFactory.parseString(s"withExhaustive { foo: foo, bar: 1, anextrafield: error }")
+    val reader = arbitraryTypeValueReader[ClassWithMultipleParams]
+    def doRead: Unit = reader.read(cfg, "withExhaustive")
     doRead must throwA[IllegalArgumentException].like {
-      case e:IllegalArgumentException => e.getMessage should contain("withCamelCaseFields.anextrafield")
+      case e:IllegalArgumentException => e.getMessage should contain("withExhaustive.anextrafield")
     }
   }
 
@@ -273,4 +283,12 @@ object ArbitraryTypeReaderSpec {
   }
 
   class ClassWithCamelCaseFields(val aCamelCaseField: String, val anotherCamelCaseField: String)
+
+  object LowercaseArbitraryTypeReader extends ArbitraryTypeReader {
+    override def mapParam(n: String) = n.toLowerCase()
+  }
+
+  object ExhaustiveArbitraryTypeReader extends ArbitraryTypeReader {
+    override val checkExhaustivity = true
+  }
 }
